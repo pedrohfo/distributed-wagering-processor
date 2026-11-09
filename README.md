@@ -1,132 +1,152 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Distributed Wagering Processor
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A distributed, financial-grade wagering backend built with **Bun 1.x**, **TypeScript (strict)**, **NestJS**, **MikroORM 7**, **PostgreSQL**, **SQS FIFO / LocalStack**, and **Docker Compose**.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## What works
 
-## Description
+- Exact decimal `Money` value object (`amount` as decimal string; no floating point for monetary balances).
+- `Wallet` aggregate, immutable PostgreSQL ledger, nonnegative balance constraints, wallet versioning.
+- `BET`, `WIN`, `LOSS`, `REFUND`, `ROLLBACK`, internal `OPENING` transaction, and out-of-order references.
+- Persistent idempotency keyed by `Idempotency-Key`, with canonical SHA-256 business payload and response balance snapshot.
+- PostgreSQL wallet row locking, uniqueness constraints, deferred ledger/balance reconciliation, and atomic outbox.
+- Durable pending-reference retry with exponential backoff, TTL, and `SKIP LOCKED` worker claims.
+- SQS FIFO inbox consumer, PostgreSQL-backed deduplication, ack after SQL commit, malformed-message DLQ, and separate outbox publisher.
+- NestJS API and independent NestJS worker process, shutdown hooks, health endpoints.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Requirements
 
-## Project setup
+- Bun 1.x, Docker Engine with Docker Compose, Windows PowerShell or equivalent shell.
+- PostgreSQL and LocalStack started by the project's existing `docker-compose.yml`.
+- The `backend` database configured by `.env` (development) and optional test databases `backend_test`, `backend_sqs_test`.
 
-```bash
-$ bun install
+## Setup
+
+```powershell
+Copy-Item .env.example .env # development-only defaults; adjust as needed
+bun install
+docker compose up -d
+bunx mikro-orm debug
+bunx mikro-orm migration:up
+bun run scripts/setup-sqs.ts
 ```
 
-## Compile and run the project
+Use the printed queue URLs for the following variables (exact values depend on LocalStack):
 
-```bash
-# development
-$ bun run start
-
-# watch mode
-$ bun run start:dev
-
-# production mode
-$ bun run start:prod
+```powershell
+$env:DB_NAME = 'backend'
+$env:DB_HOST = '127.0.0.1'
+$env:DB_PORT = '5434' # existing Compose port mapping; adjust for your environment
+$env:DB_USER = 'postgres'
+$env:DB_PASSWORD = 'postgres'
+$env:AWS_REGION = 'us-east-1'
+$env:AWS_ACCESS_KEY_ID = 'test'
+$env:AWS_SECRET_ACCESS_KEY = 'test'
+$env:SQS_ENDPOINT = 'http://127.0.0.1:4566'
+$env:SQS_INBOX_QUEUE_URL = '<from setup-sqs.ts>'
+$env:SQS_INBOX_DLQ_URL = '<from setup-sqs.ts>'
+$env:SQS_OUTBOX_QUEUE_URL = '<from setup-sqs.ts>'
 ```
 
-## Run tests
+**Start HTTP API** (terminal 1):
 
-```bash
-# unit tests
-$ bun run test
-
-# e2e tests
-$ bun run test:e2e
-
-# test coverage
-$ bun run test:cov
+```powershell
+bun run scripts/run-api.ts
 ```
 
-## Deployment
+**Start background workers** (terminal 2; use the same development database/queue configuration):
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ bun install -g @nestjs/mau
-$ mau deploy
+```powershell
+$env:WORKERS_ENABLED = '1'
+bun run scripts/run-workers.ts
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+**Smoke test** (terminal 3):
 
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
-
-```bash
-$ npx @nestjs/observe link
+```powershell
+Invoke-RestMethod http://127.0.0.1:3000/health/live
+Invoke-RestMethod http://127.0.0.1:3000/health/ready
+.\scripts\smoke-api.ps1
 ```
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+## HTTP API
 
-Or do it by hand:
+| Method | Route |
+|---|---|
+| POST | `/wallets` |
+| GET | `/wallets/:walletId` |
+| GET | `/wallets/:walletId/ledger?limit=50&cursor=...` |
+| POST | `/wallets/:walletId/reconciliation` |
+| POST | `/wagering/transactions` (mandatory `Idempotency-Key` header) |
+| GET | `/wagering/transactions/:transactionId` |
+| GET | `/providers/:providerId/wagering/transactions/:externalTransactionId` |
+| GET | `/health/live` |
+| GET | `/health/ready` |
 
-```bash
-$ bun install @nestjs/observe
+Sample wager request:
+
+```http
+POST /wagering/transactions
+Content-Type: application/json
+Idempotency-Key: provider-a:transaction-123
+
+{
+  "providerId": "provider-a",
+  "externalTransactionId": "transaction-123",
+  "playerId": "player-uuid",
+  "walletId": "wallet-uuid",
+  "roundId": "round-987",
+  "gameId": "fortune-chimp",
+  "kind": "BET",
+  "money": { "amount": "25.00", "currency": "BRL" }
+}
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+HTTP codes distinguish invalid requests (400), unknown entities (404), conflicts (409), business rejections (422), pending references (202), successful processing or replay (200), and unavailable infrastructure (503).
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+## Testing
 
-## Resources
+Domain/unit tests (no special DB overrides):
 
-Check out a few resources that may come in handy when working with NestJS:
+```powershell
+bunx tsc --noEmit
+bun test src/domain
+bun test src/workers/worker-loop.spec.ts
+bun test src/http/http-validation.spec.ts
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+PostgreSQL-only integration suite (set test DB and enable guard):
 
-## Support
+```powershell
+$env:DB_NAME = 'backend_test'
+$env:RUN_DB_INTEGRATION = '1'
+Remove-Item Env:RUN_SQS_INTEGRATION -ErrorAction SilentlyContinue
+bunx mikro-orm migration:up
+bun test
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+LocalStack+PostgreSQL integration suite (separate DB, queues configured):
 
-## Stay in touch
+```powershell
+$env:DB_NAME = 'backend_sqs_test'
+$env:RUN_SQS_INTEGRATION = '1'
+Remove-Item Env:RUN_DB_INTEGRATION -ErrorAction SilentlyContinue
+bunx mikro-orm migration:up
+bun test
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+The integration suites deliberately use **different database names**. Their totals should not be added as if one command had executed them all. Tests inject synthetic crashes/outages to exercise retry paths, and corresponding warning logs are expected.
 
-## License
+## Failure guarantees and limitations
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- Ledger rows are immutable (database triggers forbid update/delete/truncate) and must not be cleaned up after test runs.
+- All wallet/transaction/ledger/outbox changes commit in one PostgreSQL transaction. The SQS consumer acknowledges only after commit.
+- SQS FIFO is an ordering aid, **not** an exactly-once guarantee; inbox keys, idempotency keys and PostgreSQL constraints provide durable correctness.
+- Integration events may publish more than once if a process crashes between SQS send and `publishedAt` persistence; consumers must deduplicate by event ID.
+- Authentication is intentionally not implemented in this technical challenge (zero rubric points). See `ARCHITECTURE.md` for intended OIDC/guard extension.
+- Multi-process scale, 50-parallel duplicate operations, lock-contention benchmarks, outbox lag histograms, and containerized API/worker service definitions are **not claimed verified unless separately demonstrated**.
+
+See `ARCHITECTURE.md` for architecture decisions, tradeoffs, and test gaps.
+
+## Submission verification
+
+Run `bunx tsc --noEmit`, `bun test`, and the PowerShell HTTP smoke script (on Windows PowerShell 5.1, use `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke-api.ps1`). Database integration tests intentionally require separate `backend_test` and `backend_sqs_test` databases. `docker-compose.yml` currently hosts only PostgreSQL and LocalStack: launch API and worker processes with the Bun commands above; multiple-process stress verification remains an explicit follow-up, not a tested guarantee.
