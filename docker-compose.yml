@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: backend-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-backend}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  localstack:
+    image: localstack/localstack:4.14
+    container_name: backend-localstack
+    restart: unless-stopped
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: us-east-1
+      DEBUG: "0"
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - ./docker/localstack/init:/etc/localstack/init/ready.d
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS http://localhost:4566/_localstack/health | grep -q '"sqs"'
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+volumes:
+  postgres_data:
